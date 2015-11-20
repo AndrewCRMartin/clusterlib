@@ -1,27 +1,57 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "bioplib/array.h"
+#include "bioplib/macros.h"
 
 #include "cluster.h"
 
 static REAL CalcDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, int type, REAL **dataDistances);
 static REAL doClustering(int *newClusters, int *oldClusters, REAL **dataMatrix, int level, int numVec, int vecSize, int type, REAL **dataDistances);
-static REAL VecDistance(int item0, int item1, REAL **dataMatrix, int vecSize);
-static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances);
-static REAL doCompleteDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances);
+/* static REAL VecDistance(int item0, int item1, REAL **dataMatrix, int vecSize); */
+static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances);
+static REAL doCompleteDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances);
 static REAL doCentroidDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize);
-static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances);
+static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances);
 static REAL Distance(REAL *vector0, REAL *vector1, int vecSize);
 static REAL **FillDataDistanceMatrix(REAL **dataMatrix, int numVec, int vecSize, BOOL verbose);
 
 
 
-void PrintClusters(FILE *fp, int **clusters, int nClus, REAL **data, int numVec, int vecSize)
+/*
+labels is an optional linked list of labels to be used when one asks
+to print a certain number of clusters and their members. If not used
+it is set to NULL.
+ */
+void PrintClusters(FILE *fp, int **clusters, int nClus, REAL **data, int numVec, int vecSize, CLUSTERLABELS *labels)
 {
-   int row, i, j, k, clusNum;
+   int row, i, j, k, 
+       clusNum, 
+       *members = NULL;
+   CLUSTERLABELS **labelIndex = NULL;
+
    row = numVec-nClus;
 
-   int *members = NULL;
+   if(labels!=NULL)
+   {
+      int nLabels = 0;
+      CLUSTERLABELS *l;
+      for(l=labels; l!=NULL; NEXT(l))
+      {
+         nLabels++;
+      }
+      if((labelIndex = (CLUSTERLABELS **)malloc(nLabels * sizeof(CLUSTERLABELS *)))==NULL)
+      {
+         labels = NULL;
+      }
+      
+      for(l=labels, nLabels=0; l!=NULL; NEXT(l))
+      {
+         labelIndex[nLabels++] = l;
+      }
+   }
+   
+
    if((members=(int *)malloc(numVec * sizeof(int)))!=NULL)
    {
       /* Initialize members array */
@@ -49,6 +79,11 @@ void PrintClusters(FILE *fp, int **clusters, int nClus, REAL **data, int numVec,
                   {
                      fprintf(fp, "%g ", data[j][k]);
                   }
+                  if(labels != NULL)
+                  {
+                     fprintf(fp, "# %s", labelIndex[j]->label);
+                  }
+                  
                   fprintf(fp, "\n");
                }
             }
@@ -202,7 +237,7 @@ int **cluster(REAL **dataMatrix, int numVec, int vecSize, int type, REAL **dista
 
    if(dataDistances != NULL)
    {
-      FreeArray2D(dataDistances, numVec, numVec);
+      FreeArray2D((char **)dataDistances, numVec, numVec);
       dataDistances = NULL;
    }
 
@@ -346,30 +381,29 @@ static REAL CalcDistance(int *members0, int nMembers0, int *members1, int nMembe
    switch(type)
    {
    case CLUSTER_SINGLE:
-      dist = doSingleDistance(members0, nMembers0, members1, nMembers1, dataMatrix, vecSize, dataDistances);
+      dist = doSingleDistance(members0, nMembers0, members1, nMembers1, dataDistances);
       break;
    case CLUSTER_COMPLETE:
-      dist = doCompleteDistance(members0, nMembers0, members1, nMembers1, dataMatrix, vecSize, dataDistances);
+      dist = doCompleteDistance(members0, nMembers0, members1, nMembers1, dataDistances);
       break;
    case CLUSTER_CENTROID:
       dist = doCentroidDistance(members0, nMembers0, members1, nMembers1, dataMatrix, vecSize);
       break;
    case CLUSTER_AVERAGE:
-      dist = doAverageDistance(members0, nMembers0, members1, nMembers1, dataMatrix, vecSize, dataDistances);
+      dist = doAverageDistance(members0, nMembers0, members1, nMembers1, dataDistances);
       break;
    default:
-      CLUSTERDIE("Error: Illegal clustering type: %d\n", type);
+      CLUSTERDIE("(clusterlib) Error: Illegal clustering type: %d\n", type);
       break;
    }
    return(dist);
 }
 
-static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances)
+static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances)
 {
    REAL bestDist, dist;
    int  i, j;
 
-/*   bestDist = VecDistance(members0[0], members1[0], dataMatrix, vecSize); */
    bestDist = dataDistances[members0[0]][members1[0]];
   
    for(i=0; i<nMembers0; i++)
@@ -377,7 +411,6 @@ static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nM
       for(j=0; j<nMembers1; j++)
       {
          dist = dataDistances[members0[i]][members1[j]];
-/*         dist = VecDistance(members0[i], members1[j], dataMatrix, vecSize); */
          if(dist < bestDist)
          {
             bestDist = dist;
@@ -388,18 +421,16 @@ static REAL doSingleDistance(int *members0, int nMembers0, int *members1, int nM
    return(bestDist);
 }
 
-static REAL doCompleteDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances)
+static REAL doCompleteDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances)
 {
    REAL bestDist, dist;
    int  i, j;
 
-   /* bestDist = VecDistance(members0[0], members1[0], dataMatrix, vecSize); */
    bestDist = dataDistances[members0[0]][members1[0]];
    for(i=0; i<nMembers0; i++)
    {
       for(j=0; j<nMembers1; j++)
       {
-         /* dist = VecDistance(members0[i], members1[j], dataMatrix, vecSize); */
          dist = dataDistances[members0[i]][members1[j]];
          if(dist > bestDist)
          {
@@ -457,7 +488,7 @@ static REAL doCentroidDistance(int *members0, int nMembers0, int *members1, int 
 }
 
 
-static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataMatrix, int vecSize, REAL **dataDistances)
+static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int nMembers1, REAL **dataDistances)
 {
    REAL dist = 0;
    int  divisor = 0,
@@ -468,8 +499,7 @@ static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int n
       for(j=0; j<nMembers1; j++)
       {
          divisor++;
-         /* dist += VecDistance(members0[i], members1[j], dataMatrix, vecSize);*/
-         dist = dataDistances[members0[i]][members1[j]];
+         dist += dataDistances[members0[i]][members1[j]];
       }
    }
    dist /= divisor;
@@ -478,11 +508,12 @@ static REAL doAverageDistance(int *members0, int nMembers0, int *members1, int n
 
 
 
-
-static REAL VecDistance(int item0, int item1, REAL **dataMatrix, int vecSize)
-{
-   return(Distance(dataMatrix[item0], dataMatrix[item1], vecSize));
-}
+/*
+ * static REAL VecDistance(int item0, int item1, REAL **dataMatrix, int vecSize)
+ * {
+ *    return(Distance(dataMatrix[item0], dataMatrix[item1], vecSize));
+ * }
+ */
 
 static REAL Distance(REAL *vector0, REAL *vector1, int vecSize)
 {
@@ -510,5 +541,11 @@ ESS_{tot} = \sum_{k=1}^C ESS_k
 Combine the 2 cluster that minimize the increase in ESS_{tot}
 
 The division converts this to variances
+
+Using a Lance-Williams recursive algorith, (as in the 'cluster' program)
+At each stage, the distances between the clusters are calculated by
+testing a new cluster k composed of two sub-clusters, i and j as
+{[D_ik * (N_i + N_k)] + [D_jk * (N_j + N_k)] - [D_ij * N_k]} / (N_i + N_j + N_k)
+
 */
 
