@@ -109,7 +109,7 @@ int main(int argc, char **argv)
       {
          if((labels = ReadLabels(res)))
          {
-            if(OpenStdFiles(infile, outfile, &in, &out))
+            if(blOpenStdFiles(infile, outfile, &in, &out))
             {
                CLUSTERLABELS *r;
                int nres;
@@ -395,13 +395,13 @@ REAL **ReadPDBData(FILE *fp, CLUSTERLABELS *labels, int nres, int *numVec, int *
    *vecSize = 3;
    
    /* Allocate the data array                                           */
-   if((data = (REAL **)Array2D(sizeof(REAL), nres, *vecSize))==NULL)
+   if((data = (REAL **)blArray2D(sizeof(REAL), nres, *vecSize))==NULL)
    {
       return(NULL);
    }
    
    /* open the PDB file                                                 */
-   if((pdb=ReadPDB(fp, &natoms))!=NULL)
+   if((pdb=blReadPDB(fp, &natoms))!=NULL)
    {
       PDB *p;
       CLUSTERLABELS *r;
@@ -422,7 +422,7 @@ REAL **ReadPDBData(FILE *fp, CLUSTERLABELS *labels, int nres, int *numVec, int *
          {
             if(!strncmp(p->atnam, "CA  ", 4))
             {
-               if(ParseResSpec(r->label, chain, &resnum, insert))
+               if(blParseResSpec(r->label, chain, &resnum, insert))
                {
                   if((chain[0]  == p->chain[0]) &&
                      (resnum    == p->resnum) &&
@@ -467,7 +467,7 @@ BOOL WriteFixedResList(FILE *in, FILE *out, CLUSTERLABELS *labels)
    int natoms;
    
    /* read the PDB file                                                 */
-   if((pdb=ReadPDB(in, &natoms))!=NULL)
+   if((pdb=blReadPDB(in, &natoms))!=NULL)
    {
       PDB *p;
       CLUSTERLABELS *r;
@@ -480,7 +480,7 @@ BOOL WriteFixedResList(FILE *in, FILE *out, CLUSTERLABELS *labels)
          {
             if(!strncmp(p->atnam, "CA  ", 4))
             {
-               if(ParseResSpec(r->label, chain, &resnum, insert))
+               if(blParseResSpec(r->label, chain, &resnum, insert))
                {
                   if((chain[0]  == p->chain[0]) &&
                      (resnum    == p->resnum) &&

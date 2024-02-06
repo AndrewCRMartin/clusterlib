@@ -237,7 +237,7 @@ int **cluster(REAL **dataMatrix, int numVec, int vecSize, int type, REAL **dista
 
    if(dataDistances != NULL)
    {
-      FreeArray2D((char **)dataDistances, numVec, numVec);
+      blFreeArray2D((char **)dataDistances, numVec, numVec);
       dataDistances = NULL;
    }
 
@@ -254,7 +254,7 @@ static REAL **FillDataDistanceMatrix(REAL **dataMatrix, int numVec, int vecSize,
    {
       fprintf(stderr,"Precalculating data distance matrix...");
    }
-   if((dataDistances = (REAL **)Array2D(sizeof(REAL), numVec, numVec))==NULL)
+   if((dataDistances = (REAL **)blArray2D(sizeof(REAL), numVec, numVec))==NULL)
    {
       return(NULL);
    }
