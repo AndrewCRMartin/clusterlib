@@ -8,7 +8,7 @@ LIBS   = -lgen -lm
 $(TARGET) : $(OFILES)
 	$(CC) $(OPTS) -o $@ $(OFILES) $(LIBS)
 
-.c.o : $(IFILES)
+.c.o :
 	$(CC) $(OPTS) -c -o $@ $<
 
 clean :

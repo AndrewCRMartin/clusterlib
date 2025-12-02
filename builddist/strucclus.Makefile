@@ -1,4 +1,4 @@
-CC     = cc
+CC     = cc -O3
 OFILES = strucclus.o clusterlib.o 
 LFILES = bioplib/fgetsany.o bioplib/array2.o bioplib/upstrncmp.o bioplib/GetWord.o \
          bioplib/OpenStdFiles.o bioplib/ReadPDB.o bioplib/ParseRes.c \

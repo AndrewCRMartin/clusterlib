@@ -3,12 +3,12 @@
    Program:    strucclus
    File:       strucclus.c
    
-   Version:    V0.1
-   Date:       12.10.12
+   Version:    V1.1
+   Date:       22.12.25
    Function:   
    
-   Copyright:  (c) UCL / Dr. Andrew C. R. Martin 2012
-   Author:     Dr. Andrew C. R. Martin
+   Copyright:  (c) UCL / Dr. Andrew C. R. Martin 2012-2025
+   Author:     Prof. Andrew C. R. Martin
    Address:    Biomolecular Structure & Modelling Unit,
                Institute of Structural & Molecular Biology,
                University College,
@@ -46,6 +46,8 @@
 
    Revision History:
    =================
+   V1.0   xx.xx.12  Original
+   V1.1   02.12.25  Added -o option
 
 *************************************************************************/
 /* Includes
@@ -74,36 +76,45 @@
 /* Prototypes
 */
 int main(int argc, char **argv);
-REAL **ReadPDBData(FILE *fp, CLUSTERLABELS *labels, int nres, int *numVec, int *vecSize);
+REAL **ReadPDBData(PDB *in, CLUSTERLABELS *labels, int nres,
+                   int *numVec, int *vecSize);
 void Usage(void);
 BOOL ParseCmdLine(int argc, char **argv, char *resfile, char *infile, 
                   char *outfile, int *type, BOOL *printMatrix, 
-                  int *nClus, BOOL *verbose, BOOL *doFix);
+                  int *nClus, BOOL *verbose, BOOL *doFix, char *pdbOut);
 CLUSTERLABELS *ReadLabels(FILE *fp);
 BOOL WriteFixedResList(FILE *in, FILE *out, CLUSTERLABELS *labels);
+void SetAllPDBBvals(PDB *pdb, int **clusters, int nClus,
+                    REAL **data, int numVec, int vecSize,
+                    CLUSTERLABELS *labels);
+void SetBVal(PDB *pdb, char *resid, int clusNum);
+
 
 /************************************************************************/
 int main(int argc, char **argv)
 {
    REAL **dataMatrix = NULL;
-   int numVec;
-   int vecSize;
-   int **clusters = NULL;
+   int  numVec,
+        vecSize,
+        type       = CLUSTER_SINGLE,
+        nClus      = 0,
+        **clusters = NULL;
    REAL *distances;
    FILE *in  = stdin,
         *res = NULL,
         *out = stdout;
+   PDB  *pdb = NULL;
    char infile[MAXBUFF],
         outfile[MAXBUFF],
+        pdbOutfile[MAXBUFF],
         resfile[MAXBUFF];
-   int  type = CLUSTER_SINGLE,
-        nClus = 0;
    BOOL printMatrix = TRUE,
-        verbose = FALSE,
-        doFix = FALSE;
+        verbose     = FALSE,
+        doFix       = FALSE;
    CLUSTERLABELS *labels = NULL;
 
-   if(ParseCmdLine(argc, argv, resfile, infile, outfile, &type, &printMatrix, &nClus, &verbose, &doFix))
+   if(ParseCmdLine(argc, argv, resfile, infile, outfile, &type,
+                   &printMatrix, &nClus, &verbose, &doFix, pdbOutfile))
    {
       if((res=fopen(resfile, "r")))
       {
@@ -112,7 +123,7 @@ int main(int argc, char **argv)
             if(blOpenStdFiles(infile, outfile, &in, &out))
             {
                CLUSTERLABELS *r;
-               int nres;
+               int nres, natoms;
 
                if(doFix)
                {
@@ -120,15 +131,17 @@ int main(int argc, char **argv)
                   return(0);
                }
                
-               /* Count the number of residues in our labels - that is maximum for 
-                  numVec 
+               /* Count the number of residues in our labels - that is
+                  maximum for numVec 
                */
                for(r=labels, nres=0; r!=NULL; NEXT(r))
-               {
                   nres++;
-               }
 
-               if((dataMatrix = ReadPDBData(in, labels, nres, &numVec, &vecSize))==NULL)
+               if((pdb=blReadPDB(in, &natoms))==NULL)
+                  return(1);
+               
+               if((dataMatrix = ReadPDBData(pdb, labels, nres,
+                                            &numVec, &vecSize))==NULL)
                {
                   return(1);
                }
@@ -139,10 +152,28 @@ int main(int argc, char **argv)
                {
                   PrintClusterMatrix(stdout, clusters, numVec, distances);
                }
+
                if(nClus)
                {
                   PrintClusters(stdout, clusters, nClus, dataMatrix, 
                                 numVec, vecSize, labels);
+                  if(pdbOutfile[0])
+                  {
+                     FILE *fp;
+                     if((fp=fopen(pdbOutfile, "w"))!=NULL)
+                     {
+                        SetAllPDBBvals(pdb, clusters, nClus,
+                                       dataMatrix, numVec, vecSize,
+                                       labels);
+                        blWritePDB(fp, pdb);
+                        fclose(fp);
+                     }
+                     else
+                     {
+                        fprintf(stderr,"Error (strucclus): Unable to \
+write output PDB file (%s)\n", pdbOutfile);
+                     }
+                  }
                }
             }
          }
@@ -178,20 +209,23 @@ list file (%s)\n",
             char   **argv       Argument array
    Output:  char   *infile      Input file (or blank string)
             char   *outfile     Output file (or blank string)
+            char   *pdbOutfile  Output PDB file (or blank string)
    Returns: BOOL                Success?
 
    Parse the command line
    
    08.11.96 Original    By: ACRM
+   02.12.25 Added -o
 */
 BOOL ParseCmdLine(int argc, char **argv, char *resfile, char *infile, 
                   char *outfile, int *type, BOOL *printMatrix, 
-                  int *nClus, BOOL *verbose, BOOL *doFix)
+                  int *nClus, BOOL *verbose, BOOL *doFix,
+                  char *pdbOutfile)
 {
    argc--;
    argv++;
 
-   infile[0] = outfile[0] = resfile[0] = '\0';
+   infile[0] = outfile[0] = resfile[0] = pdbOutfile[0] = '\0';
    
    while(argc)
    {
@@ -262,6 +296,19 @@ BOOL ParseCmdLine(int argc, char **argv, char *resfile, char *infile,
                return(FALSE);
             }
             break;
+         case 'o':
+            argc--;
+            argv++;
+            if(argc)
+            {
+               strncpy(pdbOutfile, argv[0], MAXBUFF-2);
+               pdbOutfile[MAXBUFF-1] = '\0';
+            }
+            else
+            {
+               return(FALSE);
+            }
+            break;
          default:
             return(FALSE);
             break;
@@ -289,7 +336,19 @@ BOOL ParseCmdLine(int argc, char **argv, char *resfile, char *infile,
             if(argc)
                strcpy(outfile, argv[0]);
          }
-            
+
+         if((*nClus==0) && (pdbOutfile[0] != '\0'))
+         {
+            fprintf(stderr, "\n\n**********************************\
+*******\n");
+            fprintf(stderr, "*** YOU MUST SPECIFY -n WHEN USING -o \
+***\n");
+            fprintf(stderr, "**************************************\
+***\n\n");
+            return(FALSE);
+         }
+         printf("nClus = %d, pdbOutfile = %s\n", *nClus, pdbOutfile);
+         
          return(TRUE);
       }
       argc--;
@@ -300,32 +359,48 @@ BOOL ParseCmdLine(int argc, char **argv, char *resfile, char *infile,
    if(!(resfile[0]))
       return(FALSE);
    
+   if((*nClus==0) && (pdbOutfile[0] != '\0'))
+   {
+            fprintf(stderr, "\n\n**********************************\
+*******\n");
+            fprintf(stderr, "*** YOU MUST SPECIFY -n WHEN USING -o \
+***\n");
+            fprintf(stderr, "**************************************\
+***\n\n");
+      return(FALSE);
+   }
+   printf("nClus = %d, pdbOutfile = %s\n", *nClus, pdbOutfile);
+         
    return(TRUE);
 }
 
 
+/************************************************************************/
 void Usage(void)
 {
-   fprintf(stderr, "\nstrucclus V1.0 (c) 2012, UCL, Dr. Andrew C.R. \
+   fprintf(stderr, "\nstrucclus V1.1 (c) 2012-2025, UCL, Dr. Andrew C.R. \
 Martin\n");
-   fprintf(stderr, "\nUsage: strucclus [-n num] [-m] [-t type] \
-[-s | -c | -a | -d] [-f] reslist.dat [input.pdb [output.txt]]\n");
-   fprintf(stderr, "       -n     Specify a number of clusters and \
+   fprintf(stderr, "\nUsage: strucclus [-n num [-o output.pdb]] [-m] \
+[-t type] [-s | -c | -a | -d] [-f] reslist.dat \
+[input.pdb [output.txt]]\n");
+   fprintf(stderr, "   -n         Specify a number of clusters and \
 display the vectors associated\n");
    fprintf(stderr, "              with those clusters\n");
-   fprintf(stderr, "       -m     Do NOT display the clustering \
+   fprintf(stderr, "   -o out.pdb Output a PDB file with clusters \
+(Must specify -n)\n");
+   fprintf(stderr, "   -m         Do NOT display the clustering \
 matrix\n");
-   fprintf(stderr, "       -t     Specify the clustering type:\n");
-   fprintf(stderr, "                 single, complete, average, centroid\n");
-   fprintf(stderr, "       -s     Do single linkage (same as -t \
-single)\n");
-   fprintf(stderr, "       -c     Do complete linkage (same as -t \
+   fprintf(stderr, "   -t type    Specify the clustering type:\n");
+   fprintf(stderr, "              single, complete, average, centroid\n");
+   fprintf(stderr, "   -s         Do single linkage (same as -t \
+single) [DEFAULT]\n");
+   fprintf(stderr, "   -c         Do complete linkage (same as -t \
 complete)\n");
-   fprintf(stderr, "       -a     Do average linkage (same as -t \
+   fprintf(stderr, "   -a         Do average linkage (same as -t \
 average)\n");
-   fprintf(stderr, "       -d     Do centroid linkage (same as -t \
+   fprintf(stderr, "   -d         Do centroid linkage (same as -t \
 centroid)\n");
-   fprintf(stderr, "       -f     Fix the reslist file - generates a \
+   fprintf(stderr, "   -f         Fix the reslist file - generates a \
 copy of the file with\n");
    fprintf(stderr, "              residues missing from the PDB file \
 removed\n");
@@ -334,18 +409,26 @@ removed\n");
    fprintf(stderr, "Performs hierarchical cluster analysis according to \
 the specified method\n");
    fprintf(stderr, "to identify clusters of residues in a PDB file. \n");
-   fprintf(stderr, "reslist.dat contains a list of residue identifiers \
+
+   fprintf(stderr, "\nreslist.dat contains a list of residue identifiers \
 (in the \n");
    fprintf(stderr, "form [c]nnn[i]) which are to be clustered.\n");
-   fprintf(stderr, "\n");
-   fprintf(stderr, "Output is a clustering matrix with the vector \
+
+   fprintf(stderr, "\nOutput is a clustering matrix with the vector \
 numbers arranged horizontally and\n");
    fprintf(stderr, "following rows showing the cluster numbers to which \
 the vectors are assigned\n");
    fprintf(stderr, "for each number of clusters. This is suppressed \
-with -m\n\n");
+with -m\n");
+   fprintf(stderr, "\nWith -o, a PDB file is output where the default \
+temperature factor\n");
+   fprintf(stderr, "is set to zero and the cluster number is indicated \
+in the temperature\n");
+   fprintf(stderr, "factor for the clustered residues\n\n");
 }
 
+
+/************************************************************************/
 CLUSTERLABELS *ReadLabels(FILE *fp)
 {
    char buffer[MAXBUFF];
@@ -384,12 +467,18 @@ CLUSTERLABELS *ReadLabels(FILE *fp)
    return(labels);
 }
 
-REAL **ReadPDBData(FILE *fp, CLUSTERLABELS *labels, int nres, int *numVec, int *vecSize)
+/************************************************************************/
+REAL **ReadPDBData(PDB *pdb, CLUSTERLABELS *labels, int nres,
+                   int *numVec, int *vecSize)
 {
-   PDB *pdb = NULL;
-   int natoms;
    REAL **data = NULL;
    BOOL missing;
+   PDB *p;
+   CLUSTERLABELS *r;
+   BOOL found;
+   char chain[8], insert[8];
+   int resnum;
+
    
    /* vecSize is 3 for the three dimensions                             */
    *vecSize = 3;
@@ -400,67 +489,57 @@ REAL **ReadPDBData(FILE *fp, CLUSTERLABELS *labels, int nres, int *numVec, int *
       return(NULL);
    }
    
-   /* open the PDB file                                                 */
-   if((pdb=blReadPDB(fp, &natoms))!=NULL)
+   nres = 0;
+   missing = FALSE;
+   
+   /* We MUST search through the labels first so that the data items
+      end up in the correct order for the labels to be valid
+   */
+   for(r=labels; r!=NULL; NEXT(r))
    {
-      PDB *p;
-      CLUSTERLABELS *r;
-      BOOL found;
-      char chain[8], insert[8];
-      int resnum;
-
-      nres = 0;
-      missing = FALSE;
-      
-      /* We MUST search through the labels first so that the data items
-         end up in the correct order for the labels to be valid
-      */
-      for(r=labels; r!=NULL; NEXT(r))
+      found = FALSE;
+      for(p=pdb; p!=NULL; NEXT(p))
       {
-         found = FALSE;
-         for(p=pdb; p!=NULL; NEXT(p))
+         if(!strncmp(p->atnam, "CA  ", 4))
          {
-            if(!strncmp(p->atnam, "CA  ", 4))
+            if(blParseResSpec(r->label, chain, &resnum, insert))
             {
-               if(blParseResSpec(r->label, chain, &resnum, insert))
+               if((chain[0]  == p->chain[0]) &&
+                  (resnum    == p->resnum) &&
+                  (insert[0] == p->insert[0]))
                {
-                  if((chain[0]  == p->chain[0]) &&
-                     (resnum    == p->resnum) &&
-                     (insert[0] == p->insert[0]))
-                  {
-                     data[nres][0] = p->x;
-                     data[nres][1] = p->y;
-                     data[nres][2] = p->z;
-                     nres++;
-                     found = TRUE;
-                     break;
-                  }
+                  data[nres][0] = p->x;
+                  data[nres][1] = p->y;
+                  data[nres][2] = p->z;
+                  nres++;
+                  found = TRUE;
+                  break;
                }
             }
          }
-         if(!found)
-         {
-            fprintf(stderr,"Info (strucclus) Residue %c%d%c not found in PDB file\n", 
-                    chain[0], resnum, insert[0]);
-            missing = TRUE;
-         }
       }
-      *numVec = nres;
+      if(!found)
+      {
+         fprintf(stderr,"Info (strucclus) Residue %c%d%c not found in \
+PDB file\n", 
+                 chain[0], resnum, insert[0]);
+         missing = TRUE;
+      }
    }
-   else
-   {
-      return(NULL);
-   }
-
+   *numVec = nres;
+   
    if(missing)
    {
-      fprintf(stderr,"\nError (strucclus) Remove missing residues from the residue file\n");
+      fprintf(stderr,"\nError (strucclus) Remove missing residues from \
+the residue file\n");
       return(NULL);
    }
    
    return(data);
 }
 
+
+/************************************************************************/
 BOOL WriteFixedResList(FILE *in, FILE *out, CLUSTERLABELS *labels)
 {
    PDB *pdb = NULL;
@@ -502,3 +581,90 @@ BOOL WriteFixedResList(FILE *in, FILE *out, CLUSTERLABELS *labels)
    return(TRUE);
 }
 
+
+/************************************************************************/
+void SetAllPDBBvals(PDB *pdb, int **clusters, int nClus,
+                    REAL **data, int numVec, int vecSize,
+                    CLUSTERLABELS *labels)
+{
+   int row, i, j, 
+       clusNum, 
+       *members = NULL;
+   PDB *p;
+   CLUSTERLABELS **labelIndex = NULL;
+   
+   for(p=pdb; p!=NULL; NEXT(p))
+      p->bval = 0.0;
+
+   row = numVec-nClus;
+
+   if(labels!=NULL)
+   {
+      int nLabels = 0;
+      CLUSTERLABELS *l;
+      for(l=labels; l!=NULL; NEXT(l))
+         nLabels++;
+      
+      if((labelIndex = (CLUSTERLABELS **)
+          malloc(nLabels * sizeof(CLUSTERLABELS *)))==NULL)
+      {
+         labels = NULL;
+      }
+      
+      for(l=labels, nLabels=0; l!=NULL; NEXT(l))
+         labelIndex[nLabels++] = l;
+
+      if((members=(int *)malloc(numVec * sizeof(int)))!=NULL)
+      {
+         /* Initialize members array                                    */
+         for(i=0; i<numVec; i++)
+         {
+            members[i] = 0;
+         }
+         /* Count the number of items in each cluster                   */
+         for(i=0; i<numVec; i++)
+         {
+            members[clusters[row][i]]++;
+         }
+         
+         clusNum = 1;
+         for(i=0; i<numVec; i++)
+         {
+            if(members[i])
+            {
+               for(j=0; j<numVec; j++)
+               {
+                  if(clusters[row][j]==i)
+                  {
+                     SetBVal(pdb, labelIndex[j]->label, clusNum);
+                  }
+               }
+            }
+            clusNum++;
+         }
+         free(members);
+      }
+      free(labelIndex);
+   }
+}
+
+/************************************************************************/
+void SetBVal(PDB *pdb, char *resid, int clusNum)
+{
+   PDB *start,
+      *stop,
+      *p;
+   REAL cn;
+   
+   if(clusNum == 1)
+      cn = 1.5;
+   else
+      cn = (REAL)clusNum;
+   
+   if((start = blFindResidueSpec(pdb, resid))!=NULL)
+   {
+      stop = blFindNextResidue(start);
+      for(p=start; p!=stop; NEXT(p))
+         p->bval = cn;
+   }
+}
